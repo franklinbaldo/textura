@@ -1,0 +1,66 @@
+name: Textura CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch: # Allows manual triggering
+
+jobs:
+  build_and_test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        # Test against Python 3.10, as it's a common modern version.
+        # Add other versions if necessary e.g., 3.9, 3.11
+        python-version: ["3.10"]
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        # Install PyTorch for CPU first to avoid large GPU packages
+        # This is crucial for environments with limited disk space or no GPU
+        pip install torch --index-url https://download.pytorch.org/whl/cpu
+        # Install main application requirements
+        pip install -r requirements.txt
+        # Install development/testing requirements
+        pip install -r requirements-dev.txt
+        # Install the Textura package itself in editable mode
+        pip install -e .
+
+    - name: Lint with Ruff
+      run: |
+        ruff check .
+
+    - name: Type check with MyPy
+      run: |
+        mypy .
+        # MyPy configuration is in pyproject.toml, including exclusions for tests
+
+    - name: Run Pytests
+      run: |
+        pytest tests/
+
+    # Optional: Add a step to build distributions if you have setup.py configured for it
+    # - name: Build distributions
+    #   run: |
+    #     python setup.py sdist bdist_wheel
+
+    # Optional: Add a step to upload artifacts like test reports or built distributions
+    # - name: Upload test reports (example)
+    #   uses: actions/upload-artifact@v3
+    #   if: always() # Run this step even if previous steps fail
+    #   with:
+    #     name: pytest-reports-${{ matrix.python-version }}
+    #     path: pytest-report.xml # Assuming pytest is configured to output a report
+    #     retention-days: 7
