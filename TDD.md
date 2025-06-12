@@ -115,8 +115,8 @@ graph TD
 
 **Key Choices:**
 *   **Language:** Python 3.12+ (rich ecosystem, excellent for ML/LLM tooling).
-*   **LLM Driver:** LlamaIndex abstractions over OpenAI function-calling or Google Vertex AI (Gemini).
-*   **Vector Store:** **FAISS** (default in LlamaIndex, 100% local, no external services). Milvus Lite is a future option via feature flag.
+*   **LLM Driver:** Remote LLMs (e.g., Gemini). No local NLP libraries like NLTK or embedding models are used at this stage.
+*   **Vector Store:** Currently mocked in memory. The plan is to introduce FAISS or a similar store once the core workflow is validated.
 *   **Persistence:** All artifacts live inside a single `~/cwo_workspace/` folder.
 *   **Orchestration:** Implicitly managed within the Python process; no explicit task runner like Prefect/Dagster for PoC/MVP.
 
@@ -180,7 +180,7 @@ sequenceDiagram
 
 | Parameter | Env Var | Default | Description |
 | :--- | :--- | :--- | :--- |
-| Vector Store Backend | `CWO_VECTOR_BACKEND` | `faiss` | `faiss` or `milvus-lite`. Dictates the underlying vector database. |
+| Vector Store Backend | `CWO_VECTOR_BACKEND` | `milvus` | `milvus` or `faiss`. Dictates the underlying vector database. |
 | LLM Provider & Model | `CWO_LLM_MODEL` | `gemini-1.5-pro` | Name of the LLM used for extraction and synthesis tasks. |
 | Embedding Model | `CWO_EMBED_MODEL` | `BAAI/bge-base-en-v1.5` | HuggingFace name for the embedding model. |
 | Chunk Size | `CWO_CHUNK_SIZE` | `1024` | Max token count for each text chunk. |

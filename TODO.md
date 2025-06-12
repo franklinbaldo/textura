@@ -30,7 +30,7 @@ A successful PoC means we can run a single script on a sample folder and produce
 
 *   **[EPIC] Implement Full Mystery Investigation Pass:**
     -   `[TASK]` Create Mystery Agent that takes a `Mystery` object as input.
-    -   `[TASK]` Perform a vector similarity search against the FAISS index using the mystery's question.
+    -   `[TASK]` Perform a vector similarity search against the Milvus index using the mystery's question.
     -   `[TASK]` Feed top-k results to an LLM to synthesize a "lead."
     -   `[TASK]` Append the generated lead to the corresponding `Mystery.md` note.
     -   `[TASK]` Update the mystery's status (e.g., to `INVESTIGATING`).
@@ -62,9 +62,9 @@ A successful PoC means we can run a single script on a sample folder and produce
     -   `[SUBTASK]` Implement the `init` command to create the `textura_workspace/` directory structure.
 *   **[FEATURE] Implement Core Ingestion Pipeline (`ingest` command) (#3):**
     -   `[SUBTASK]` Implement `Source Watcher` to read files and check against `manifest.json`.
-    -   `[SUBTASK]` Implement `Chunker` using LlamaIndex readers (`pymupdf`).
-    -   `[SUBTASK]` Implement `Embedder` to generate BGE embeddings for chunks.
-    -   `[SUBTASK]` Wire up `FAISSVectorStore` to save and persist the index to `workspace/faiss.index`.
+    -   `[SUBTASK]` Implement `Chunker` (initially using simple file reads; no LlamaIndex dependency).
+    -   `[SUBTASK]` Implement `Embedder` using mock embeddings until a real model is introduced.
+    -   `[SUBTASK]` Provide a simple in-memory vector store placeholder. Milvus integration via LlamaIndex will come later.
     -   `[SUBTASK]` Purge stale chunks from the vector store before re-indexing a modified document (**BR-003**).
 *   **[FEATURE] Implement Extractor Agent (First Pass) (#4):**
     -   `[SUBTASK]` Draft the "Schema-First Extraction" prompt and JSON schema as a Pydantic model (`EventV1`, `MysteryV1`, etc.).

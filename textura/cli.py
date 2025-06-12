@@ -7,7 +7,7 @@ from typing import List, Union # Added Union
 from textura.ingestion.source_watcher import SourceWatcher
 from textura.ingestion.chunker import Chunker
 from textura.ingestion.embedder import Embedder
-from textura.ingestion.vector_store import FAISSVectorStore
+from textura.ingestion.vector_store import FAISSVectorStore, MilvusVectorStoreWrapper
 from textura.extraction.models import ExtractionItem, EventV1, MysteryV1 # Added EventV1, MysteryV1
 from textura.extraction.extractor_agent import ExtractorAgent
 from textura.logging.metacog import Metacog
@@ -91,7 +91,11 @@ def ingest(workspace: str, source: str):
 
         chunker = Chunker()
         embedder = Embedder()
-        vector_store = FAISSVectorStore(workspace_path=str(workspace_path))
+        backend = os.getenv("TEXTURA_VECTOR_BACKEND", "milvus").lower()
+        if backend == "faiss":
+            vector_store = FAISSVectorStore(workspace_path=str(workspace_path))
+        else:
+            vector_store = MilvusVectorStoreWrapper()
 
         processed_files_count = 0
         for file_path in files_to_process:
@@ -110,7 +114,10 @@ def ingest(workspace: str, source: str):
             click.echo(f"  - Generated {len(embeddings)} embedding(s).")
 
             relative_path_for_doc_store = str(file_path.relative_to(source_dir_for_watcher))
-            vector_store.add_embeddings(text_chunks, embeddings, source_file=relative_path_for_doc_store)
+            if backend == "faiss":
+                vector_store.add_embeddings(text_chunks, embeddings, source_file=relative_path_for_doc_store)
+            else:
+                vector_store.add_texts(text_chunks, source_file=relative_path_for_doc_store)
             click.echo(f"  - Added embeddings to vector store.")
 
             watcher.mark_as_ingested(file_path)
