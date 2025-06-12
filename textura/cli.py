@@ -11,6 +11,7 @@ from textura.ingestion.vector_store import FAISSVectorStore
 from textura.extraction.models import ExtractionItem, EventV1, MysteryV1 # Added EventV1, MysteryV1
 from textura.extraction.extractor_agent import ExtractorAgent
 from textura.logging.metacog import Metacog
+from textura.logging.stats_collector import StatsCollector
 from textura.vault.vault_writer import VaultWriter # Added
 from textura.vault.timeline_builder import TimelineBuilder # Added
 
@@ -204,8 +205,9 @@ def extract(workspace: str):
 
 @textura_cli.command() # Changed from placeholder
 @click.option('--workspace', default='textura_workspace', help='Path to the Textura workspace.', show_default=True, required=True, type=click.Path(exists=True))
+@click.option('--stats', is_flag=True, help='Print a run statistics summary based on the metacog log.')
 # Removed --pipeline option for now, as weave is specific to extractions -> vault
-def weave(workspace: str): # Renamed pipeline arg
+def weave(workspace: str, stats: bool): # Renamed pipeline arg
     """Processes extractions, writes them to the vault, and builds timelines."""
     workspace_path = Path(workspace).resolve()
     click.echo(f"Starting weave process for workspace: {workspace_path}")
@@ -277,6 +279,11 @@ def weave(workspace: str): # Renamed pipeline arg
             timeline_builder = TimelineBuilder(workspace_path=str(workspace_path), events=all_events)
             timeline_builder.build_timelines()
             click.echo("Timeline building complete.")
+
+        if stats:
+            collector = StatsCollector(workspace_path=str(workspace_path))
+            summary = collector.format_summary(collector.collect())
+            click.echo(summary)
 
         click.echo("\nWeave process finished.")
 

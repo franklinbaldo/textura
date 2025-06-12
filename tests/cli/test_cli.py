@@ -79,10 +79,11 @@ def test_cli_e2e_ingest_extract_weave(runner: CliRunner, test_workspace: Path, t
     assert ext_data[0]['description'] == "E2E test event"
 
     # 4. Weave
-    result_weave = runner.invoke(textura_cli, ['weave', '--workspace', str(test_workspace)])
+    result_weave = runner.invoke(textura_cli, ['weave', '--workspace', str(test_workspace), '--stats'])
     assert result_weave.exit_code == 0
     assert "Wrote 1 items to the vault" in result_weave.output # 1 event
     assert "Building timelines from 1 events" in result_weave.output
+    assert "Textura Run Stats" in result_weave.output
 
     # Verify vault and timeline file creation (basic checks)
     event_notes_path = test_workspace / "vault" / "notes" / "events"
