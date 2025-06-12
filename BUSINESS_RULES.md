@@ -24,3 +24,11 @@ This document serves as the single source of truth for the core decision-making 
 | :--- | :--- | :--- | :--- | :--- |
 | **BR-007** | **Mystery Investigation Scope** | When investigating a `Mystery`, the agent will perform a vector similarity search and retrieve the top 5 most relevant `Chunks` from the entire corpus as potential context. | The `Mystery Agent` will query the vector store with `k=5`. | `test_mystery_agent_retrieves_k_chunks()` |
 | **BR-008** | **Timeline Note Creation** | A `_Timelines/YYYY.md` note is created for any year in which at least one `Event` occurs. A `_Timelines/YYYY-MM.md` note is created for any month in which at least one `Event` occurs. | The `Timeline Builder` will iterate through all extracted events and create notes on demand. | `test_timeline_builder_creates_year_and_month_notes()` |
+
+## 4. Additional Operational Guidelines
+
+| Rule ID | Rule Name | Rule Description (Plain English) | Implementation Notes & Location | Test Case(s) |
+| :--- | :--- | :--- | :--- | :--- |
+| **BR-009** | **Markdown for Agent Status** | Agent status, todos, and memory should be tracked in plain `.md` files whenever possible. Avoid other document formats. | Backlog and status notes live in Markdown files like `TODO.md`. | `test_markdown_status_files()` |
+| **BR-010** | **Minimal PDF Operations** | Heavy PDF processing is discouraged; rely on Gemini's built-in PDF handling rather than custom OCR or parsing logic. | Ingestion uses simple readers (e.g., `pymupdf`) without advanced PDF manipulation. | `test_ingest_handles_pdf_simple()` |
+| **BR-011** | **No NLTK Dependency** | Natural language tasks should not use `nltk`; Gemini is preferred. | `requirements.txt` excludes `nltk` and code relies on Gemini's capabilities. | `test_no_nltk_imports()` |

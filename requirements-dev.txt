@@ -1,5 +1,7 @@
 pytest>=7.0.0
 ruff>=0.1.0
 mypy>=1.0.0
+# Use uv for isolated package management
+uv>=0.1.0
 # Add other dev dependencies as needed, e.g., pytest-cov
 # For now, ruff and mypy are also here for explicitness, though they might be installed globally in CI.

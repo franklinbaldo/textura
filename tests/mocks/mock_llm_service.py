@@ -29,7 +29,8 @@ class MockLLMService:
 
     def add_default_response(self, response: Union[str, Dict[str, Any]]):
         """Add a response to the default cycle list."""
-        self.default_responses.append(response)
+        # Prepend so the newest response is returned first
+        self.default_responses.insert(0, response)
 
     def __call__(self, chunk_text: str) -> str:
         """
