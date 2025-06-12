@@ -1,3 +1,18 @@
+[project]
+name = "textura"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Codex", email = "codex@openai.com" }
+]
+requires-python = ">=3.12"
+dependencies = []
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
 [tool.ruff]
 line-length = 88
 select = ["E", "F", "W", "C90", "I", "N", "D", "UP", "ANN", "S", "BLE", "A", "COM", "RUF"]
