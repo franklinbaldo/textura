@@ -78,7 +78,7 @@ class Chunker:
 if __name__ == '__main__':
     # Example Usage (requires a PDF file for PyMuPDFReader)
     # Create a dummy PDF for testing if pymupdf is installed
-    # You'll need to have pymupdf installed: pip install pymupdf
+    # You'll need to have pymupdf installed: uv pip install pymupdf
 
     # Create a dummy source directory
     dummy_source_dir = Path("_test_source_chunker")

@@ -45,11 +45,14 @@ A successful PoC means we can run a single script on a sample folder and produce
 *   **[FEATURE] Implement Narrative Agent:**
     -   `[TASK]` Design a prompt that queries the `Timeline Builder`'s output.
     -   `[TASK]` Synthesize a high-level `Narrative.md` that summarizes key periods and links to the `_Timelines/` notes.
+*   **[FEATURE] Implement ID Generator & Date Fallback:**
+    -   `[TASK]` Create a utility that assigns a consistent CID to each nugget using its `YYYY-MM-DD` date when available.
+    -   `[TASK]` When a nugget has no date, prefix the CID with the current run date and mark `date_inferred: true` (**BR-005**).
 
 ### ⏳ To Do (This Week's Priority)
 
 *   **[CHORE] Initialize Repository & Scaffolding (#1):**
-    -   `[SUBTASK]` Create `requirements.txt` with pinned versions (`pip freeze > requirements.txt`).
+    -   `[SUBTASK]` Create `requirements.txt` with pinned versions (`uv pip freeze > requirements.txt`).
     -   `[SUBTASK]` Add `.editorconfig` and `.gitignore`.
     -   `[SUBTASK]` Set up `pyproject.toml` with `ruff` and `mypy` configurations.
     -   `[SUBTASK]` Create `LICENSE` (MIT) and `CONTRIBUTING.md` files.
@@ -62,6 +65,7 @@ A successful PoC means we can run a single script on a sample folder and produce
     -   `[SUBTASK]` Implement `Chunker` using LlamaIndex readers (`pymupdf`).
     -   `[SUBTASK]` Implement `Embedder` to generate BGE embeddings for chunks.
     -   `[SUBTASK]` Wire up `FAISSVectorStore` to save and persist the index to `workspace/faiss.index`.
+    -   `[SUBTASK]` Purge stale chunks from the vector store before re-indexing a modified document (**BR-003**).
 *   **[FEATURE] Implement Extractor Agent (First Pass) (#4):**
     -   `[SUBTASK]` Draft the "Schema-First Extraction" prompt and JSON schema as a Pydantic model (`EventV1`, `MysteryV1`, etc.).
     -   `[SUBTASK]` Create an agent that iterates through chunks from the vector store.
