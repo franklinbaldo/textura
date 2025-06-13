@@ -1,9 +1,13 @@
-import pytest
+import shutil
 import tempfile
 from pathlib import Path
-import shutil
 
-@pytest.fixture(scope="function") # "function" scope means it runs once per test function
+import pytest
+
+
+@pytest.fixture(
+    scope="function"
+)  # "function" scope means it runs once per test function
 def test_workspace():
     """Creates a temporary workspace directory for a test function."""
     temp_dir = tempfile.mkdtemp(prefix="textura_test_ws_")
@@ -18,6 +22,7 @@ def test_workspace():
         shutil.rmtree(workspace_path)
     except OSError as e:
         print(f"Error removing temporary workspace {workspace_path}: {e}")
+
 
 @pytest.fixture(scope="function")
 def test_source_dir():
