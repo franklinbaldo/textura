@@ -2,111 +2,66 @@ import json
 from typing import List, Dict, Any, Union, Type, Callable, Optional # Added Optional
 from pydantic import ValidationError
 
-from textura.extraction.models import EventV1, MysteryV1, ExtractionItem
+from textura.extraction.models import EventV1, MysteryV1, PersonV1, LocationV1, OrganizationV1, ExtractionItem
+from textura.extraction.prompts import SCHEMA_FIRST_EXTRACTION_PROMPT
 from textura.logging.metacog import Metacog
 
 # --- Mock LLM Implementation ---
 # [[[POC_MOCK_LLM_RESPONSES_START]]]
 MOCK_LLM_RESPONSES = [
     # Valid Event
-    {
-        "extractions": [
-            {
-                "type": "event",
-                "data": {
-                    "timestamp": "2024-06-15T14:30:00Z",
-                    "description": "The team meeting started with a review of last week's progress.",
-                }
-            }
-        ]
-    },
+    {"extractions": [{"type": "event", "data": {"timestamp": "2024-06-15T14:30:00Z", "description": "Team meeting for Project Alpha."}}]},
     # Valid Mystery
-    {
-        "extractions": [
-            {
-                "type": "mystery",
-                "data": {
-                    "question": "What is the 'Project Chimera' mentioned in the document?",
-                    "context": "The document refers to 'Project Chimera' multiple times but provides no definition."
-                }
-            }
-        ]
-    },
-    # Mixed valid Event and valid Mystery
-    {
-        "extractions": [
-            {
-                "type": "event",
-                "data": {
-                    "timestamp": "Yesterday afternoon",
-                    "description": "Alice finished her part of the report."
-                }
-            },
-            {
-                "type": "mystery",
-                "data": {
-                    "question": "Why was Bob absent from the critical meeting?",
-                    "context": "Meeting minutes show Alice, Carol, and Dave present, but not Bob."
-                }
-            }
-        ]
-    },
+    {"extractions": [{"type": "mystery", "data": {"question": "What is 'Project Chimera'?", "context": "Document mentions 'Project Chimera' without definition."}}]},
+    # Valid Person
+    {"extractions": [{"type": "person", "data": {"name": "Dr. Evelyn Reed", "title": "Chief Scientist", "role": "Lead Investigator"}}]},
+    # Valid Location
+    {"extractions": [{"type": "location", "data": {"name": "Area 51", "type": "Research Facility"}}]},
+    # Valid Organization
+    {"extractions": [{"type": "organization", "data": {"name": "BioFuture Inc.", "type": "Biotechnology Company", "industry": "Healthcare"}}]},
+    # Mixed valid items
+    {"extractions": [
+        {"type": "event", "data": {"timestamp": "Yesterday", "description": "Alice completed her report for Globex."}},
+        {"type": "person", "data": {"name": "Alice Wonderland", "role": "Reporter"}},
+        {"type": "organization", "data": {"name": "Globex Corporation"}}
+    ]},
     # Invalid Event (missing description)
-    {
-        "extractions": [
-            {
-                "type": "event",
-                "data": {
-                    "timestamp": "2024-06-15"
-                }
-            }
-        ]
-    },
+    {"extractions": [{"type": "event", "data": {"timestamp": "2024-06-15"}}]},
     # Invalid Mystery (question is not a string)
-    {
-        "extractions": [
-            {
-                "type": "mystery",
-                "data": {
-                    "question": 12345,
-                    "context": "A number was found instead of a question."
-                }
-            }
-        ]
-    },
+    {"extractions": [{"type": "mystery", "data": {"question": 12345, "context": "Invalid question type."}}]},
+    # Invalid Person (missing name)
+    {"extractions": [{"type": "person", "data": {"title": "CEO"}}]},
+    # Invalid Location (name is not a string)
+    {"extractions": [{"type": "location", "data": {"name": True, "type": "Restricted Area"}}]},
+    # Invalid Organization (type is a number)
+    {"extractions": [{"type": "organization", "data": {"name": "DataSys", "type": 123}}]},
     # Invalid type field
-    {
-        "extractions": [
-            {
-                "type": "unknown_type",
-                "data": {
-                    "info": "This type is not recognized."
-                }
-            }
-        ]
-    },
-    # Malformed JSON (will be returned as a string by mock_llm_client)
+    {"extractions": [{"type": "unknown_entity", "data": {"info": "This type is not recognized."}}]},
+    # Malformed JSON string
     '{"extractions": [{"type": "event", "data": {"timestamp": "today", "description": "System backup completed."}}',
     # Empty extractions list
-    {
-        "extractions": []
-    },
+    {"extractions": []},
     # No "extractions" key
-    {
-        "other_key": "some data"
-    }
+    {"other_key": "some data"},
+    # Multiple extractions, one invalid
+    {"extractions": [
+        {"type": "person", "data": {"name": "Valid Person"}},
+        {"type": "event", "data": {}} # Invalid event, missing timestamp and description
+    ]}
 ]
 _mock_llm_call_count = 0
 # [[[POC_MOCK_LLM_RESPONSES_END]]]
 
-def mock_llm_client(chunk_text: str) -> str:
+def mock_llm_client(prompt_string: str) -> str: # Parameter changed to prompt_string, but it's not used by mock
     """
     A mock LLM client that cycles through predefined responses.
+    It IGNORES the prompt_string and just returns the next mock response.
     Some responses are valid JSON, others are malformed or cause validation errors.
     """
     global _mock_llm_call_count
     response_index = _mock_llm_call_count % len(MOCK_LLM_RESPONSES)
     _mock_llm_call_count += 1
+    print(f"MockLLM: Called with prompt (first 50 chars): '{prompt_string[:50]}...'. Returning response index: {response_index}") # For debugging
 
     response = MOCK_LLM_RESPONSES[response_index]
     if isinstance(response, str): # For testing malformed JSON
@@ -132,11 +87,13 @@ class ExtractorAgent:
         else:
             self.llm_client = mock_llm_client # Default to the built-in mock if no client is provided
         self.metacog_logger = metacog_logger
-        self.event_model = event_model
-        self.mystery_model = mystery_model
-        self.model_map: Dict[str, Type[Union[EventV1, MysteryV1]]] = {
-            "event": self.event_model,
-            "mystery": self.mystery_model,
+        # Models are now directly referenced from imports
+        self.model_map: Dict[str, Type[ExtractionItem]] = { # Type hint uses the updated ExtractionItem
+            "event": EventV1,
+            "mystery": MysteryV1,
+            "person": PersonV1,
+            "location": LocationV1,
+            "organization": OrganizationV1,
         }
 
     def extract_from_chunk(
@@ -146,8 +103,8 @@ class ExtractorAgent:
         source_file: str
     ) -> List[ExtractionItem]:
         """
-        Uses an LLM (mocked) to extract structured data from a text chunk,
-        validates it, and logs the process.
+        Uses an LLM to extract structured data from a text chunk by formatting
+        a detailed prompt, then validates the LLM's response, and logs the process.
 
         Args:
             chunk_text: The text content of the chunk.
@@ -155,9 +112,10 @@ class ExtractorAgent:
             source_file: The original file name the chunk belongs to.
 
         Returns:
-            A list of validated Pydantic model instances (EventV1 or MysteryV1).
+            A list of validated Pydantic model instances (subtypes of ExtractionItem).
         """
-        raw_llm_output = self.llm_client(chunk_text)
+        prompt = SCHEMA_FIRST_EXTRACTION_PROMPT.format(text_chunk_content=chunk_text)
+        raw_llm_output = self.llm_client(prompt)
 
         validated_extractions: List[ExtractionItem] = []
         errors: List[Dict[str, Any]] = []
@@ -254,26 +212,40 @@ if __name__ == '__main__':
     metacog = Metacog(workspace_path=str(dummy_workspace_path))
     agent = ExtractorAgent(metacog_logger=metacog)
 
+    # More diverse sample texts to trigger various mock responses
     sample_texts = [
-        "The meeting happened at noon. We discussed Project X.",
-        "There's a question about the budget for Y.",
-        "Alice reported success. Bob's status is unknown.",
-        "This chunk is deliberately malformed by the mock LLM.",
-        "This one will have a missing field.",
-        "This one will have a type error.",
-        "This will be an unknown type.",
-        "This will be empty extractions",
-        "This will be missing extractions key"
+        "A meeting about Project Alpha was held. Dr. Evelyn Reed attended.", # Event, Person
+        "Where is Area 51 located? BioFuture Inc. might know.", # Mystery, Location, Organization
+        "Alice from Globex called yesterday.", # Person, Organization, Event
+        "The financial report for Q2 is out.", # Potential Event
+        "Dr. Smith visited the New York office of OmniCorp.", # Person, Location, Organization
+        "What happened to the server in London?", # Mystery, Location
+        "The CEO of MacroHard, Bill G., announced a new product.", # Person, Organization, Event
+        "This text should trigger a malformed JSON response from the mock.", # Malformed JSON
+        "This text should trigger an empty extractions list from the mock.", # Empty list
+        "This text should trigger a response missing the 'extractions' key.", # Missing key
+        "This should trigger an invalid event.", # Invalid event
+        "This should trigger an invalid mystery.", # Invalid mystery
+        "This should trigger an invalid person.", # Invalid person
+        "This should trigger an invalid location.", # Invalid location
+        "This should trigger an invalid organization.", # Invalid organization
+        "This should trigger an unknown type.", # Unknown type
+        "Valid person Dr. Valid and invalid event." # Mixed valid/invalid
     ]
 
     all_extracted_items: List[ExtractionItem] = []
 
-    print(f"--- Running ExtractorAgent with Mock LLM ({len(MOCK_LLM_RESPONSES)} predefined responses) ---")
-    for i, text in enumerate(sample_texts):
-        print(f"\nProcessing chunk {i+1}...")
-        chunk_id = f"chunk_id_{i:03d}"
-        source_file = f"source_file_{i%2}.txt"
+    # Ensure MOCK_LLM_RESPONSES has enough variety for the sample texts
+    print(f"--- Running ExtractorAgent with Mock LLM ({len(MOCK_LLM_RESPONSES)} predefined responses for {len(sample_texts)} text chunks) ---")
+    if len(sample_texts) > len(MOCK_LLM_RESPONSES):
+        print("Warning: More sample texts than mock responses. Responses will repeat.")
 
+    for i, text in enumerate(sample_texts):
+        print(f"\nProcessing chunk {i+1}: '{text}'")
+        chunk_id = f"chunk_id_{i:03d}"
+        source_file = f"source_file_{i%3}.txt" # Cycle through 3 source files
+
+        # The mock_llm_client will ignore 'text' and cycle through MOCK_LLM_RESPONSES
         extracted = agent.extract_from_chunk(text, chunk_id, source_file)
         if extracted:
             print(f"  Validated extractions ({len(extracted)}):")
