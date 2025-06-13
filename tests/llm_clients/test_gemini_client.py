@@ -6,10 +6,22 @@ from unittest.mock import patch, MagicMock
 # For local dev, it should be part of requirements.
 try:
     from textura.llm_clients.gemini_client import GeminiClient
+    from textura.llm_clients.types import (
+        Tool as TexturaTool,
+        FunctionDeclaration as TexturaFunctionDeclaration,
+        FunctionParameters as TexturaFunctionParameters,
+        FunctionParameterProperty as TexturaFunctionParameterProperty,
+        LLMResponse,
+        FunctionCall
+    )
+    from google.generativeai.types import Type as GeminiSDKType
     google_generativeai_available = True
 except ImportError:
     google_generativeai_available = False
     GeminiClient = None # Placeholder if import fails
+    # Define placeholders for types if import failed, to allow class structure to be parsed
+    TexturaTool, TexturaFunctionDeclaration, TexturaFunctionParameters, TexturaFunctionParameterProperty, LLMResponse, FunctionCall, GeminiSDKType = (None,)*7
+
 
 # Conditionally skip tests if google.generativeai is not available and GeminiClient could not be imported
 # This is more relevant if these tests were to run in an environment without all dependencies.
@@ -143,6 +155,126 @@ class TestGeminiClient(unittest.TestCase):
         self.assertIsNone(client.model)
         response = client.predict("test")
         self.assertEqual(response, "Error: Model not initialized.")
+
+    @patch.dict('os.environ', {"GOOGLE_API_KEY": "fake_key"})
+    @patch('google.generativeai.configure')
+    @patch('google.generativeai.GenerativeModel')
+    def test_predict_with_tools_constructs_gemini_tools_correctly(self, mock_generative_model_class, mock_configure):
+        """Test that Textura Tool definitions are correctly converted to Gemini format."""
+        mock_model_instance = MagicMock()
+        mock_generative_model_class.return_value = mock_model_instance
+
+        # Mock the response from generate_content to be a simple text response
+        mock_gemini_response = MagicMock()
+        mock_text_part = MagicMock()
+        mock_text_part.text = "Text response"
+        mock_text_part.function_call = None # Explicitly
+        mock_gemini_response.candidates = [MagicMock(content=MagicMock(parts=[mock_text_part]))]
+        mock_model_instance.generate_content.return_value = mock_gemini_response
+
+        client = GeminiClient(api_key="fake_key")
+
+        textura_tools = [
+            TexturaTool(function_declarations=[
+                TexturaFunctionDeclaration(
+                    name="get_weather",
+                    description="Get current weather in a location",
+                    parameters=TexturaFunctionParameters(
+                        properties={
+                            "location": TexturaFunctionParameterProperty(type="string", description="City and state")
+                        },
+                        required=["location"]
+                    )
+                )
+            ])
+        ]
+
+        client.predict_with_tools("What's the weather in Boston?", tools=textura_tools)
+
+        args, kwargs = mock_model_instance.generate_content.call_args
+
+        # Check that generation_config was passed in kwargs
+        self.assertIn('generation_config', kwargs)
+        gen_config = kwargs['generation_config']
+
+        # Check tools in gen_config
+        self.assertTrue(hasattr(gen_config, 'tools'))
+        self.assertEqual(len(gen_config.tools), 1)
+        gemini_tool = gen_config.tools[0]
+        self.assertEqual(len(gemini_tool.function_declarations), 1)
+        gemini_func_decl = gemini_tool.function_declarations[0]
+
+        self.assertEqual(gemini_func_decl.name, "get_weather")
+        self.assertEqual(gemini_func_decl.description, "Get current weather in a location")
+        self.assertIsNotNone(gemini_func_decl.parameters)
+        self.assertEqual(gemini_func_decl.parameters.type, GeminiSDKType.OBJECT)
+        self.assertIn("location", gemini_func_decl.parameters.properties)
+        self.assertEqual(gemini_func_decl.parameters.properties["location"].type, GeminiSDKType.STRING)
+        self.assertEqual(gemini_func_decl.parameters.required, ["location"])
+
+    @patch.dict('os.environ', {"GOOGLE_API_KEY": "fake_key"})
+    @patch('google.generativeai.configure')
+    @patch('google.generativeai.GenerativeModel')
+    def test_predict_with_tools_parses_function_call_response(self, mock_generative_model_class, mock_configure):
+        """Test parsing of a function call response from Gemini."""
+        mock_model_instance = MagicMock()
+        mock_generative_model_class.return_value = mock_model_instance
+
+        # Mock Gemini's FunctionCall and parts structure
+        mock_gemini_fc = MagicMock()
+        mock_gemini_fc.name = "get_weather"
+        # Gemini's FunctionCall.args is often a Struct/dict-like object
+        mock_gemini_fc.args = {"location": "Boston"}
+
+        mock_fc_part = MagicMock()
+        mock_fc_part.function_call = mock_gemini_fc
+        mock_fc_part.text = None # Explicitly
+
+        mock_gemini_response = MagicMock()
+        mock_gemini_response.candidates = [MagicMock(content=MagicMock(parts=[mock_fc_part]))]
+        mock_gemini_response.text = None # No direct text if function call is made
+
+        mock_model_instance.generate_content.return_value = mock_gemini_response
+
+        client = GeminiClient(api_key="fake_key")
+        # Simplified tool for this test, details tested in constructs_gemini_tools_correctly
+        textura_tools = [TexturaTool(function_declarations=[TexturaFunctionDeclaration(name="get_weather", description="...", parameters=TexturaFunctionParameters(properties={"location": TexturaFunctionParameterProperty(type="string")}))])]
+
+        llm_response = client.predict_with_tools("What's the weather?", tools=textura_tools)
+
+        self.assertIsNotNone(llm_response.function_calls)
+        self.assertEqual(len(llm_response.function_calls), 1)
+        self.assertIsNone(llm_response.text)
+
+        function_call = llm_response.function_calls[0]
+        self.assertEqual(function_call.name, "get_weather")
+        self.assertEqual(function_call.arguments, {"location": "Boston"})
+
+    @patch.dict('os.environ', {"GOOGLE_API_KEY": "fake_key"})
+    @patch('google.generativeai.configure')
+    @patch('google.generativeai.GenerativeModel')
+    def test_predict_with_tools_parses_text_response_when_tools_provided(self, mock_generative_model_class, mock_configure):
+        """Test parsing of a text response when tools are provided but not used by LLM."""
+        mock_model_instance = MagicMock()
+        mock_generative_model_class.return_value = mock_model_instance
+
+        mock_text_part = MagicMock()
+        mock_text_part.text = "I cannot call tools right now."
+        mock_text_part.function_call = None
+
+        mock_gemini_response = MagicMock()
+        mock_gemini_response.candidates = [MagicMock(content=MagicMock(parts=[mock_text_part]))]
+
+        mock_model_instance.generate_content.return_value = mock_gemini_response
+
+        client = GeminiClient(api_key="fake_key")
+        textura_tools = [TexturaTool(function_declarations=[TexturaFunctionDeclaration(name="get_weather", description="...", parameters=TexturaFunctionParameters(properties={"location": TexturaFunctionParameterProperty(type="string")}))])]
+
+        llm_response = client.predict_with_tools("Some prompt", tools=textura_tools)
+
+        self.assertIsNone(llm_response.function_calls)
+        self.assertIsNotNone(llm_response.text)
+        self.assertEqual(llm_response.text, "I cannot call tools right now.")
 
 
 if __name__ == '__main__':

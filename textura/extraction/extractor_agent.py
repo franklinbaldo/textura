@@ -1,11 +1,20 @@
 import json
-from typing import List, Dict, Any, Union, Type, Callable, Optional # Added Optional
-from pydantic import ValidationError
+from typing import List, Dict, Any, Union, Type, Optional # Callable removed, get_type_hints etc added later
+from pydantic import ValidationError, BaseModel
+import inspect # To check for BaseModel
 
 from textura.extraction.models import EventV1, MysteryV1, PersonV1, LocationV1, OrganizationV1, ExtractionItem
-from textura.extraction.prompts import SCHEMA_FIRST_EXTRACTION_PROMPT
+from textura.extraction.prompts import SCHEMA_FIRST_EXTRACTION_PROMPT # This prompt will need updating for tool use
 from textura.logging.metacog import Metacog
 from textura.llm_clients.base import BaseLLMClient
+from textura.llm_clients.types import (
+    Tool as TexturaTool,
+    FunctionDeclaration as TexturaFunctionDeclaration,
+    FunctionParameters as TexturaFunctionParameters,
+    FunctionParameterProperty as TexturaFunctionParameterProperty,
+    LLMResponse,
+    FunctionCall
+)
 
 # --- Mock LLM Implementation (Internal Fallback) ---
 # [[[POC_MOCK_LLM_RESPONSES_START]]]
@@ -53,9 +62,11 @@ MOCK_LLM_RESPONSES = [
 _mock_llm_call_count = 0
 # [[[POC_MOCK_LLM_RESPONSES_END]]]
 
-def mock_llm_client(prompt_string: str) -> str: # Parameter changed to prompt_string, but it's not used by mock
+# This internal mock_llm_client is now less aligned with the new LLMResponse-based flow.
+# It's kept for basic fallback if no llm_client_instance is provided, but will not support tool use.
+def mock_llm_client(prompt_string: str) -> str:
     """
-    A mock LLM client that cycles through predefined responses.
+    A mock LLM client that cycles through predefined JSON string responses.
     It IGNORES the prompt_string and just returns the next mock response.
     Some responses are valid JSON, others are malformed or cause validation errors.
     """
@@ -93,122 +104,176 @@ class ExtractorAgent:
             "organization": OrganizationV1,
         }
 
+    def _generate_tools_from_pydantic_models(self) -> List[TexturaTool]:
+        tools = []
+        function_declarations = []
+
+        for model_name_str, model_class in self.model_map.items():
+            if not inspect.isclass(model_class) or not issubclass(model_class, BaseModel):
+                continue
+
+            schema = model_class.model_json_schema()
+            properties = {}
+            # Pydantic v2 model_json_schema() might put required fields inside 'components' or 'defs'
+            # and then reference them. For simple flat models, 'required' might be top-level.
+            # This logic might need adjustment based on actual schema structure for complex models.
+            required_fields = schema.get('required', [])
+
+            for field_name, field_props in schema.get('properties', {}).items():
+                if field_name in ["source_file", "chunk_id"]:
+                    continue
+
+                json_type = field_props.get('type', 'string')
+                # Handle Optional fields (e.g. {'anyOf': [{'type': 'string'}, {'type': 'null'}]})
+                # or {'type': ['string', 'null']} in newer JSON schema drafts
+                if 'anyOf' in field_props:
+                    types_without_null = [t['type'] for t in field_props['anyOf'] if t.get('type') != 'null']
+                    if len(types_without_null) == 1:
+                        json_type = types_without_null[0]
+                elif isinstance(field_props.get('type'), list): # e.g. "type": ["string", "null"]
+                    types_without_null = [t for t in field_props['type'] if t != 'null']
+                    if len(types_without_null) == 1:
+                        json_type = types_without_null[0]
+
+                properties[field_name] = TexturaFunctionParameterProperty(
+                    type=json_type,
+                    description=field_props.get('description', field_props.get('title', ''))
+                )
+
+            function_declarations.append(
+                TexturaFunctionDeclaration(
+                    name=model_name_str,
+                    description=schema.get('description', f"Extracts a {model_name_str} entity."),
+                    parameters=TexturaFunctionParameters(
+                        properties=properties,
+                        required=[rf for rf in required_fields if rf not in ["source_file", "chunk_id"]]
+                    )
+                )
+            )
+
+        if function_declarations:
+            tools.append(TexturaTool(function_declarations=function_declarations))
+        return tools
+
     def extract_from_chunk(
         self,
         chunk_text: str,
         chunk_id: str,
         source_file: str
     ) -> List[ExtractionItem]:
-        """
-        Uses an LLM to extract structured data from a text chunk by formatting
-        a detailed prompt, then validates the LLM's response, and logs the process.
 
-        Args:
-            chunk_text: The text content of the chunk.
-            chunk_id: The unique identifier for the chunk.
-            source_file: The original file name the chunk belongs to.
-
-        Returns:
-            A list of validated Pydantic model instances (subtypes of ExtractionItem).
-        """
+        # TODO: The SCHEMA_FIRST_EXTRACTION_PROMPT needs to be updated to be more suitable for tool use.
+        # It currently instructs the LLM to format as JSON with an "extractions" key, which is
+        # different from how function calling/tool use works.
+        # For now, we'll use it, but this is a key area for future improvement.
         formatted_prompt = SCHEMA_FIRST_EXTRACTION_PROMPT.format(text_chunk_content=chunk_text)
-        raw_llm_output: str
+
+        tools_for_llm = self._generate_tools_from_pydantic_models()
+
+        llm_response_obj: Optional[LLMResponse] = None
+        raw_llm_output_for_log: str = ""
+        errors: List[Dict[str, Any]] = []
+        validated_extractions: List[ExtractionItem] = []
 
         if self.llm_client_instance:
-            raw_llm_output = self.llm_client_instance.predict(formatted_prompt)
+            try:
+                llm_response_obj = self.llm_client_instance.predict_with_tools(
+                    formatted_prompt,
+                    tools=tools_for_llm
+                )
+                if llm_response_obj:
+                    raw_llm_output_for_log = llm_response_obj.model_dump_json()
+            except Exception as e:
+                errors.append({
+                    "error_type": "LLMClientError",
+                    "message": f"Error calling LLM client's predict_with_tools: {str(e)}",
+                })
+                raw_llm_output_for_log = f"LLMClientError: {str(e)}"
         else:
-            # Fallback to internal mock if no client instance was provided
-            # This maintains behavior for the existing if __name__ == '__main__' block
-            # and for tests that don't pass an llm_client.
-            # The internal mock_llm_client's signature takes `prompt_string` (previously `chunk_text`)
-            # which matches the `formatted_prompt` here, so it should still work.
-            # However, the *behavior* of the internal mock is to cycle through MOCK_LLM_RESPONSES
-            # ignoring the actual prompt content. This is acceptable for a fallback/demo.
-            print("ExtractorAgent: No LLM client instance provided, using internal mock_llm_client.")
-            raw_llm_output = mock_llm_client(formatted_prompt) # Pass the formatted_prompt
+            print("ExtractorAgent: No LLM client instance provided, using internal mock_llm_client (tool use not simulated).")
+            raw_text_output = mock_llm_client(formatted_prompt)
+            raw_llm_output_for_log = raw_text_output
+            # The internal mock returns a JSON string that looks like the old direct extraction format.
+            # To make it somewhat compatible with the new flow, we'll try to parse it
+            # and if it contains "extractions", we'll process them as if they were function calls.
+            # This is a temporary bridge for the internal mock.
+            try:
+                parsed_mock_json = json.loads(raw_text_output)
+                if "extractions" in parsed_mock_json and isinstance(parsed_mock_json["extractions"], list):
+                    mock_function_calls = []
+                    for item in parsed_mock_json["extractions"]:
+                        if isinstance(item, dict) and "type" in item and "data" in item:
+                            mock_function_calls.append(FunctionCall(name=item["type"], arguments=item["data"]))
+                    if mock_function_calls:
+                        llm_response_obj = LLMResponse(function_calls=mock_function_calls)
+                    else:
+                        llm_response_obj = LLMResponse(text=raw_text_output) # No valid mock "extractions"
+                else:
+                    llm_response_obj = LLMResponse(text=raw_text_output) # Not the expected mock structure
+            except json.JSONDecodeError:
+                llm_response_obj = LLMResponse(text=raw_text_output) # Malformed JSON from mock
 
-        validated_extractions: List[ExtractionItem] = []
-        errors: List[Dict[str, Any]] = []
 
-        try:
-            parsed_llm_response = json.loads(raw_llm_output)
-            if not isinstance(parsed_llm_response, dict) or "extractions" not in parsed_llm_response:
-                errors.append({
-                    "error_type": "FormatError",
-                    "message": "LLM response is missing 'extractions' key or is not a dictionary.",
-                    "raw_output_snippet": raw_llm_output[:200]
-                })
-            elif not isinstance(parsed_llm_response["extractions"], list):
-                errors.append({
-                    "error_type": "FormatError",
-                    "message": "'extractions' key is not a list.",
-                    "raw_output_snippet": raw_llm_output[:200]
-                })
-            else:
-                for item_data in parsed_llm_response["extractions"]:
-                    if not isinstance(item_data, dict) or "type" not in item_data or "data" not in item_data:
-                        errors.append({
-                            "error_type": "FormatError",
-                            "message": "Extraction item is not a dict or missing 'type'/'data' keys.",
-                            "item_data": item_data
-                        })
-                        continue
+        if llm_response_obj and llm_response_obj.function_calls:
+            for func_call in llm_response_obj.function_calls:
+                model_class = self.model_map.get(func_call.name)
+                if not model_class:
+                    errors.append({
+                        "error_type": "UnsupportedFunctionCall",
+                        "message": f"LLM called unknown function: {func_call.name}",
+                        "function_call_name": func_call.name,
+                        "arguments": func_call.arguments
+                    })
+                    continue
 
-                    extraction_type_str = item_data.get("type")
-                    model_class = self.model_map.get(extraction_type_str)
+                payload = func_call.arguments.copy() if func_call.arguments else {}
+                payload["source_file"] = source_file
+                payload["chunk_id"] = chunk_id
 
-                    if not model_class:
-                        errors.append({
-                            "error_type": "UnsupportedType",
-                            "message": f"Unknown extraction type: {extraction_type_str}",
-                            "item_data": item_data,
-                        })
-                        continue
-
-                    payload = item_data.get("data", {})
-                    # Add source_file and chunk_id from context, not from LLM
-                    payload["source_file"] = source_file
-                    payload["chunk_id"] = chunk_id
-
-                    try:
-                        validated_item = model_class(**payload)
-                        validated_extractions.append(validated_item)
-                    except ValidationError as e:
-                        errors.append({
-                            "error_type": "ValidationError",
-                            "model_type": extraction_type_str,
-                            "message": str(e),
-                            "problematic_data": payload,
-                            "pydantic_errors": e.errors()
-                        })
-                    except Exception as e: # Catch any other unexpected error during instantiation
-                        errors.append({
-                            "error_type": "InstantiationError",
-                            "model_type": extraction_type_str,
-                            "message": str(e),
-                            "problematic_data": payload,
-                        })
-
-        except json.JSONDecodeError:
+                try:
+                    validated_item = model_class(**payload)
+                    validated_extractions.append(validated_item)
+                except ValidationError as e:
+                    errors.append({
+                        "error_type": "ValidationErrorFromFunctionCall",
+                        "model_type": func_call.name,
+                        "message": str(e),
+                        "problematic_data": payload,
+                        "pydantic_errors": e.errors()
+                    })
+                except Exception as e:
+                    errors.append({
+                        "error_type": "InstantiationErrorFromFunctionCall",
+                        "model_type": func_call.name,
+                        "message": str(e),
+                        "problematic_data": payload
+                    })
+        elif llm_response_obj and llm_response_obj.text:
             errors.append({
-                "error_type": "JSONDecodeError",
-                "message": "LLM output was not valid JSON.",
-                "raw_output_snippet": raw_llm_output[:200] # Log a snippet
+                "error_type": "TextResponseFromLLM", # Renamed for clarity
+                "message": "LLM returned a text response. If tools were provided, this means no suitable tool was called.",
+                "text_response": llm_response_obj.text[:500]
             })
-        except Exception as e: # Catch any other unexpected error during parsing
+        elif not llm_response_obj: # Only if client returned None and no error caught before
              errors.append({
-                "error_type": "GenericParsingError",
-                "message": str(e),
-                "raw_output_snippet": raw_llm_output[:200]
+                "error_type": "NoLLMResponse",
+                "message": "LLM client returned no response object.",
             })
-
+        # If llm_response_obj exists but has neither text nor function_calls (should be rare with Pydantic model)
+        elif not llm_response_obj.text and not llm_response_obj.function_calls:
+             errors.append({
+                "error_type": "EmptyLLMResponse",
+                "message": "LLMResponse object had neither text nor function calls.",
+            })
 
         self.metacog_logger.log_extraction(
             chunk_id=chunk_id,
             source_file=source_file,
-            raw_llm_output=raw_llm_output,
+            raw_llm_output=raw_llm_output_for_log,
             validated_extractions=validated_extractions,
-            errors=errors
+            errors=errors,
+            prompt_sent=formatted_prompt
+            # TODO: Add tools_sent=tools_for_llm to log (need to serialize TexturaTool list)
         )
         return validated_extractions
 

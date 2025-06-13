@@ -1,8 +1,24 @@
 import os
 import google.generativeai as genai
-from typing import Any # For kwargs
+from typing import List, Optional, Dict, Any # Ensure these are comprehensive
 
 from .base import BaseLLMClient
+from .types import (
+    Tool as TexturaTool, # Alias to avoid confusion with Gemini's Tool
+    FunctionDeclaration as TexturaFunctionDeclaration,
+    FunctionParameters as TexturaFunctionParameters,
+    FunctionParameterProperty as TexturaFunctionParameterProperty,
+    LLMResponse,
+    FunctionCall
+)
+# google.generativeai as genai should already be imported
+from google.generativeai.types import FunctionDeclaration as GeminiFunctionDeclaration
+from google.generativeai.types import Tool as GeminiTool
+from google.generativeai.types import Schema as GeminiSchema
+from google.generativeai.types import Type as GeminiType
+from google.generativeai.types import GenerationConfig as GeminiGenerationConfig
+# Import SafetySetting if directly used, or rely on its structure within GenerationConfig
+from google.generativeai.types import SafetySetting, HarmCategory
 
 # Recommended: Set up a specific logger for this client if extensive logging is needed.
 # import logging
@@ -106,6 +122,119 @@ class GeminiClient(BaseLLMClient):
             print(f"Error during Gemini API call: {e}")
             # Depending on policy, either raise the exception or return an error message/empty string
             return f"Error during API call: {str(e)}"
+
+    def predict_with_tools(self, prompt: str, tools: Optional[List[TexturaTool]] = None, **kwargs: Any) -> LLMResponse:
+        if not self.model:
+            print("Error: Gemini model is not initialized. Cannot make prediction.")
+            # Return an LLMResponse indicating error or empty
+            return LLMResponse(text="Error: Model not initialized.", function_calls=None)
+
+        gemini_tools_list = []
+        if tools:
+            for textura_tool_obj in tools:
+                gemini_func_declarations = []
+                for func_decl in textura_tool_obj.function_declarations:
+                    # Convert Textura FunctionParameters.properties to Gemini Schema properties
+                    gemini_properties = {}
+                    for name, prop in func_decl.parameters.properties.items():
+                        # Basic type mapping, can be expanded
+                        # GeminiType.STRING, GeminiType.NUMBER, GeminiType.INTEGER, GeminiType.BOOLEAN, GeminiType.ARRAY, GeminiType.OBJECT
+                        # Our 'type' is a string like 'string', 'integer'.
+                        type_str_lower = prop.type.lower()
+                        if type_str_lower == 'string':
+                            g_type = GeminiType.STRING
+                        elif type_str_lower == 'integer':
+                            g_type = GeminiType.INTEGER
+                        elif type_str_lower == 'number': # float/double
+                            g_type = GeminiType.NUMBER
+                        elif type_str_lower == 'boolean':
+                            g_type = GeminiType.BOOLEAN
+                        # TODO: Add proper handling for 'array' and 'object' types if needed for nested schemas
+                        else:
+                            g_type = GeminiType.STRING # Default or raise error
+
+                        gemini_properties[name] = GeminiSchema(
+                            type=g_type,
+                            description=prop.description
+                        )
+
+                    gemini_param_schema = GeminiSchema(
+                        type=GeminiType.OBJECT, # Parameters are always an object
+                        properties=gemini_properties,
+                        required=func_decl.parameters.required
+                    )
+
+                    gemini_func_declarations.append(
+                        GeminiFunctionDeclaration(
+                            name=func_decl.name,
+                            description=func_decl.description,
+                            parameters=gemini_param_schema
+                        )
+                    )
+                gemini_tools_list.append(GeminiTool(function_declarations=gemini_func_declarations))
+
+        # Default safety settings (as per user example)
+        safety_settings = [
+            SafetySetting(category=HarmCategory.HARM_CATEGORY_HARASSMENT, threshold="BLOCK_NONE"),
+            SafetySetting(category=HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold="BLOCK_NONE"),
+            SafetySetting(category=HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold="BLOCK_NONE"),
+            SafetySetting(category=HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold="BLOCK_NONE"),
+        ]
+
+        # GenerationConfig
+        # tool_config = types.ToolConfig(function_calling_config=types.FunctionCallingConfig(mode="ANY")) # if needed
+        generation_kwargs = {
+            "safety_settings": safety_settings,
+            **kwargs # Allow overriding safety_settings or other configs via kwargs
+        }
+        if gemini_tools_list:
+            generation_kwargs["tools"] = gemini_tools_list
+            # Optional: Add tool_config for specific modes like "ANY" or "AUTO"
+            # from google.generativeai.types import ToolConfig, FunctionCallingConfig
+            # generation_kwargs["tool_config"] = ToolConfig(
+            #    function_calling_config=FunctionCallingConfig(mode=FunctionCallingConfig.Mode.ANY)
+            # )
+
+        generation_config = GeminiGenerationConfig(**generation_kwargs)
+
+        try:
+            # Using model.generate_content, not stream for now, for simplicity in return type.
+            # The user example used stream, but ExtractorAgent might be simpler with a blocking call first.
+            response = self.model.generate_content(
+                contents=[prompt], # Assuming prompt is user role. For more complex convos, contents need building.
+                generation_config=generation_config
+            )
+
+            # Process response
+            if response.candidates and response.candidates[0].content.parts:
+                # Check for function calls
+                function_call_parts = [part for part in response.candidates[0].content.parts if part.function_call]
+                if function_call_parts:
+                    parsed_function_calls = []
+                    for part in function_call_parts:
+                        fc = part.function_call
+                        # Gemini arguments are often FunctionCalling.Arguments (like a dict)
+                        # Convert google.protobuf.struct_pb2.Struct to dict if necessary, or access fields.
+                        # For now, assume fc.args behaves like a dict or can be easily converted.
+                        args_dict = dict(fc.args) if hasattr(fc, 'args') else {}
+                        parsed_function_calls.append(FunctionCall(name=fc.name, arguments=args_dict))
+                    return LLMResponse(function_calls=parsed_function_calls, text=None)
+                else:
+                    # No function calls, assume text response
+                    full_text_response = "".join(part.text for part in response.candidates[0].content.parts if hasattr(part, 'text') and part.text)
+                    return LLMResponse(text=full_text_response, function_calls=None)
+            else: # Fallback or error in response structure
+                 # Check for simple text response if candidate structure is different
+                 if hasattr(response, 'text') and response.text:
+                     return LLMResponse(text=response.text, function_calls=None)
+
+                 print(f"Warning: Gemini response structure unexpected or empty. Response: {response}")
+                 return LLMResponse(text="Error: Unexpected response structure from LLM.", function_calls=None)
+
+        except Exception as e:
+            print(f"Error during Gemini API call with tools: {e}")
+            return LLMResponse(text=f"Error during API call with tools: {str(e)}", function_calls=None)
+
 
 # Example of how it might be used (for testing purposes, won't run in sandbox due to API calls)
 if __name__ == '__main__':
