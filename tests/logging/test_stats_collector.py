@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+
 from textura.logging.stats_collector import StatsCollector
 
 
@@ -17,7 +18,7 @@ def test_stats_collector_counts_extractions_and_errors(tmp_path: Path):
     entries = [
         {
             "validated_extractions": [
-                {"type": "event", "description": "d", "timestamp": "t"}
+                {"type": "event", "description": "d", "timestamp": "t"},
             ],
             "errors": [],
         },
@@ -43,4 +44,3 @@ def test_stats_collector_summary_format(tmp_path: Path):
     summary = collector.format_summary(collector.collect())
     assert "Textura Run Stats" in summary
     assert "Log Entries: 1" in summary
-

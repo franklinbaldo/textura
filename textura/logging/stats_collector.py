@@ -1,6 +1,5 @@
 import json
 from pathlib import Path
-from typing import Dict
 
 
 class StatsCollector:
@@ -9,11 +8,11 @@ class StatsCollector:
     def __init__(self, workspace_path: str, log_filename: str = "metacog.jsonl"):
         self.log_file = Path(workspace_path) / "logs" / log_filename
 
-    def collect(self) -> Dict[str, int]:
+    def collect(self) -> dict[str, int]:
         stats = {"log_entries": 0, "extractions": 0, "errors": 0}
         if not self.log_file.exists():
             return stats
-        with open(self.log_file, "r", encoding="utf-8") as f:
+        with open(self.log_file, encoding="utf-8") as f:
             for line in f:
                 if not line.strip():
                     continue
@@ -27,7 +26,7 @@ class StatsCollector:
                 stats["errors"] += len(entry.get("errors", []))
         return stats
 
-    def format_summary(self, stats: Dict[str, int]) -> str:
+    def format_summary(self, stats: dict[str, int]) -> str:
         lines = [
             "--- Textura Run Stats ---",
             f"Log Entries: {stats['log_entries']}",
