@@ -2,6 +2,8 @@ click>=8.0.0
 pymupdf>=1.23.0
 llama-index-core>=0.10.0
 llama-index-readers-file>=0.4.0
+llama-index-vector-stores-milvus>=0.8.0
+pymilvus>=2.4.0
 # torch is installed manually in the test/run script
 sentence-transformers>=2.2.0
 faiss-cpu>=1.7.0

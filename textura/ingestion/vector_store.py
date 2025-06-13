@@ -4,6 +4,8 @@ from pathlib import Path
 from typing import List, Dict, Any, Tuple, Optional
 import numpy as np
 import faiss
+from llama_index.core import Document, VectorStoreIndex
+from llama_index.vector_stores.milvus import MilvusVectorStore as LlamaMilvusStore
 
 class FAISSVectorStore:
     """
@@ -146,6 +148,27 @@ class FAISSVectorStore:
             else:
                 print(f"Warning: Invalid index {idx} from FAISS search results.")
         return results
+
+
+class MilvusVectorStoreWrapper:
+    """Wrapper around LlamaIndex's MilvusVectorStore."""
+
+    def __init__(self, collection_name: str = "textura", host: str = "localhost", port: str = "19530") -> None:
+        self._store = LlamaMilvusStore(collection_name=collection_name, host=host, port=port)
+        self._index = VectorStoreIndex.from_vector_store(self._store)
+        self.index_dir = Path(collection_name)
+
+    def add_texts(self, text_chunks: List[str], source_file: str) -> None:
+        docs = [Document(text=txt, metadata={"source_file": source_file}) for txt in text_chunks]
+        self._index.insert_documents(docs)
+
+    def query(self, question: str) -> str:
+        engine = self._index.as_query_engine()
+        return str(engine.query(question))
+
+    def save(self) -> None:
+        # Milvus persists automatically; placeholder for compatibility
+        pass
 
 if __name__ == '__main__':
     # Example Usage

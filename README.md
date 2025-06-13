@@ -66,10 +66,10 @@ This section outlines how to get the very first version of Textura up and runnin
 git clone https://github.com/franklinbaldo/textura.git
 cd textura
 
-# Create a virtual environment and install dependencies
+# Create a virtual environment (optional but recommended)
 uv venv
 source .venv/bin/activate  # On Windows: `.venv\Scripts\activate`
-uv pip install -r requirements.txt
+pip install -r requirements.txt
 ```
 
 ### Basic Usage
@@ -98,6 +98,9 @@ uv pip install -r requirements.txt
 4.  **Explore in Obsidian:**
     Open the `./my_textura_project/vault/` folder as a new vault in Obsidian!
 
+**Development Note:** Textura now uses LlamaIndex for document parsing and
+Milvus as the default vector store. Gemini remains the primary LLM interface.
+
 ---
 
 ## ⚙️ Configuration
@@ -108,7 +111,7 @@ Textura uses environment variables for configuration.
 | :------------------- | :------ | :---------- |
 | `TEXTURA_LLM_MODEL`  | `gemini-1.5-pro` | The LLM model to use. |
 | `TEXTURA_EMBED_MODEL` | `BAAI/bge-base-en-v1.5` | The embedding model to use. |
-| `TEXTURA_VECTOR_BACKEND` | `faiss` | The vector store backend (`faiss` or `milvus-lite`). |
+| `TEXTURA_VECTOR_BACKEND` | `milvus` | The vector store backend (`milvus` or `faiss`). |
 | `TEXTURA_CHUNK_SIZE` | `1024` | Max token count for text chunks. |
 | `TEXTURA_CHUNK_OVERLAP` | `128` | Overlap in tokens between chunks. |
 
@@ -140,7 +143,6 @@ Textura is released under the [MIT License](LICENSE).
 
 ## 🙏 Acknowledgements
 
-*   Built with [LlamaIndex](https://www.llamaindex.ai/)
 *   Leverages [Obsidian](https://obsidian.md/) for knowledge visualization
 *   Inspired by the incredible work in LLMs and PKM communities
 
