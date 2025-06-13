@@ -66,11 +66,6 @@ A successful PoC means we can run a single script on a sample folder and produce
     -   `[SUBTASK]` Implement `Embedder` using mock embeddings until a real model is introduced.
     -   `[SUBTASK]` Provide a simple in-memory vector store placeholder. Milvus integration via LlamaIndex will come later.
     -   `[SUBTASK]` Purge stale chunks from the vector store before re-indexing a modified document (**BR-003**).
-*   **[FEATURE] Implement Extractor Agent (First Pass) (#4):**
-    -   `[SUBTASK]` Draft the "Schema-First Extraction" prompt and JSON schema as a Pydantic model (`EventV1`, `MysteryV1`, etc.).
-    -   `[SUBTASK]` Create an agent that iterates through chunks from the vector store.
-    -   `[SUBTASK]` For each chunk, call the LLM (Gemini) and validate the JSON output against the Pydantic models.
-    -   `[SUBTASK]` Log the raw JSON output and any validation errors to `Metacog`.
 *   **[FEATURE] Implement `Vault Writer` & `Timeline Builder` (#5):**
     -   `[SUBTASK]` Create a `writer` module that takes Pydantic objects (e.g., `EventV1`) and renders them into Markdown strings.
     -   `[SUBTASK]` The writer must include the `<!-- TEXTURA:_v1 {...} -->` metadata comment in every generated file.
@@ -83,6 +78,11 @@ A successful PoC means we can run a single script on a sample folder and produce
 ### 🚧 In Progress
 
 *(Move tasks from "To Do" here when you start working on them.)*
+*   **[FEATURE] Implement Extractor Agent (First Pass) (#4):**
+    -   `[SUBTASK]` Draft the "Schema-First Extraction" prompt and JSON schema as a Pydantic model (`EventV1`, `MysteryV1`, etc.).
+    -   `[SUBTASK]` Create an agent that iterates through chunks from the vector store.
+    -   `[SUBTASK]` For each chunk, call the LLM (Gemini) and validate the JSON output against the Pydantic models.
+    -   `[SUBTASK]` Log the raw JSON output and any validation errors to `Metacog`.
 
 ### ✅ Done
 
