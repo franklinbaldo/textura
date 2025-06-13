@@ -5,8 +5,9 @@ from pydantic import ValidationError
 from textura.extraction.models import EventV1, MysteryV1, PersonV1, LocationV1, OrganizationV1, ExtractionItem
 from textura.extraction.prompts import SCHEMA_FIRST_EXTRACTION_PROMPT
 from textura.logging.metacog import Metacog
+from textura.llm_clients.base import BaseLLMClient
 
-# --- Mock LLM Implementation ---
+# --- Mock LLM Implementation (Internal Fallback) ---
 # [[[POC_MOCK_LLM_RESPONSES_START]]]
 MOCK_LLM_RESPONSES = [
     # Valid Event
@@ -72,25 +73,21 @@ def mock_llm_client(prompt_string: str) -> str: # Parameter changed to prompt_st
 
 class ExtractorAgent:
     """
-    Extracts structured information (Events, Mysteries) from text chunks
-    using an LLM (currently mocked) and validates against Pydantic models.
+    Extracts structured information from text chunks using an LLM client
+    and validates against Pydantic models.
     """
     def __init__(
         self,
         metacog_logger: Metacog,
-        llm_client: Optional[Callable[[str], str]] = None, # Added llm_client parameter
-        event_model: Type[EventV1] = EventV1,
-        mystery_model: Type[MysteryV1] = MysteryV1
+        llm_client: Optional[BaseLLMClient] = None, # Updated type hint
     ):
-        if llm_client:
-            self.llm_client = llm_client
-        else:
-            self.llm_client = mock_llm_client # Default to the built-in mock if no client is provided
         self.metacog_logger = metacog_logger
-        # Models are now directly referenced from imports
-        self.model_map: Dict[str, Type[ExtractionItem]] = { # Type hint uses the updated ExtractionItem
-            "event": EventV1,
-            "mystery": MysteryV1,
+        self.llm_client_instance = llm_client # Store the BaseLLMClient instance
+
+        # Model map setup
+        self.model_map: Dict[str, Type[ExtractionItem]] = {
+            "event": EventV1, # Assumes EventV1 is imported
+            "mystery": MysteryV1, # Assumes MysteryV1 is imported
             "person": PersonV1,
             "location": LocationV1,
             "organization": OrganizationV1,
@@ -114,8 +111,21 @@ class ExtractorAgent:
         Returns:
             A list of validated Pydantic model instances (subtypes of ExtractionItem).
         """
-        prompt = SCHEMA_FIRST_EXTRACTION_PROMPT.format(text_chunk_content=chunk_text)
-        raw_llm_output = self.llm_client(prompt)
+        formatted_prompt = SCHEMA_FIRST_EXTRACTION_PROMPT.format(text_chunk_content=chunk_text)
+        raw_llm_output: str
+
+        if self.llm_client_instance:
+            raw_llm_output = self.llm_client_instance.predict(formatted_prompt)
+        else:
+            # Fallback to internal mock if no client instance was provided
+            # This maintains behavior for the existing if __name__ == '__main__' block
+            # and for tests that don't pass an llm_client.
+            # The internal mock_llm_client's signature takes `prompt_string` (previously `chunk_text`)
+            # which matches the `formatted_prompt` here, so it should still work.
+            # However, the *behavior* of the internal mock is to cycle through MOCK_LLM_RESPONSES
+            # ignoring the actual prompt content. This is acceptable for a fallback/demo.
+            print("ExtractorAgent: No LLM client instance provided, using internal mock_llm_client.")
+            raw_llm_output = mock_llm_client(formatted_prompt) # Pass the formatted_prompt
 
         validated_extractions: List[ExtractionItem] = []
         errors: List[Dict[str, Any]] = []
