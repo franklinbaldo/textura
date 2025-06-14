@@ -71,6 +71,7 @@ uv venv
 source .venv/bin/activate  # On Windows: `.venv\Scripts\activate`
 pip install -r requirements.txt
 ```
+The `requirements.txt` file includes `httpx` for making requests to remote embedding providers.
 
 ### Basic Usage
 
@@ -110,7 +111,10 @@ Textura uses environment variables for configuration.
 | Environment Variable | Default | Description |
 | :------------------- | :------ | :---------- |
 | `TEXTURA_LLM_MODEL`  | `gemini-1.5-pro` | The LLM model to use. |
-| `TEXTURA_EMBED_MODEL` | `BAAI/bge-base-en-v1.5` | The embedding model to use. |
+| `TEXTURA_EMBEDDER_PROVIDER` | `local` | The embedding provider to use. Options: `local` (SentenceTransformer), `openai`, `gemini`. |
+| `TEXTURA_EMBED_MODEL` | `BAAI/bge-small-en-v1.5` | The embedding model to use. If `TEXTURA_EMBEDDER_PROVIDER=local`, this defaults to `BAAI/bge-small-en-v1.5`. For `openai` or `gemini` providers, this specifies the respective API model name (e.g., 'text-embedding-3-small' for OpenAI, 'text-embedding-004' or 'embedding-001' for Gemini) and is required if that provider is selected via environment variables. |
+| `OPENAI_API_KEY`     |         | Your OpenAI API key. Required if `TEXTURA_EMBEDDER_PROVIDER` is `openai`. |
+| `GEMINI_API_KEY`       |         | Your Gemini API key. Required if `TEXTURA_EMBEDDER_PROVIDER` is `gemini`. |
 | `TEXTURA_VECTOR_BACKEND` | `milvus` | The vector store backend (`milvus` or `faiss`). |
 | `TEXTURA_CHUNK_SIZE` | `1024` | Max token count for text chunks. |
 | `TEXTURA_CHUNK_OVERLAP` | `128` | Overlap in tokens between chunks. |
@@ -131,7 +135,7 @@ We welcome contributions! Please see our [CONTRIBUTING.md](CONTRIBUTING.md) for 
 
 ## 🛡️ Security & Privacy
 
-Textura is designed with privacy in mind. Your documents are processed locally by default. LLM API keys are handled securely via environment variables and are never stored persistently.
+Textura is designed with privacy in mind. Your documents are processed locally by default. If you configure remote embedding providers (OpenAI, Gemini) or remote LLM APIs, Textura will make external calls. API keys are handled securely via environment variables and are never stored persistently.
 
 ---
 
