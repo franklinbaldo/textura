@@ -14,6 +14,7 @@ from textura.ingestion.chunker import Chunker
 from textura.ingestion.embedder import Embedder
 from textura.ingestion.source_watcher import SourceWatcher
 from textura.ingestion.vector_store import FAISSVectorStore, MilvusVectorStoreWrapper
+from textura.agents.cluster_agent import ClusterAgent
 from textura.logging.metacog import Metacog
 from textura.logging.stats_collector import StatsCollector
 from textura.vault.timeline_builder import TimelineBuilder  # Added
@@ -189,6 +190,59 @@ def ingest(workspace: str, source: str):
         import traceback
 
         traceback.print_exc()
+
+
+@textura_cli.command()
+@click.option(
+    "--workspace",
+    default="textura_workspace",
+    help="Path to the Textura workspace.",
+    show_default=True,
+    required=True,
+    type=click.Path(exists=True),
+)
+@click.option("--linkage", default="average", show_default=True, help="Linkage method for clustering.")
+@click.option("--distance-threshold", type=float, default=None, help="Distance threshold for clustering.")
+@click.option("--n-clusters", type=int, default=None, help="Number of clusters to form.")
+@click.option("--stats", is_flag=True, help="Print clustering statistics.")
+def cluster(workspace: str, linkage: str, distance_threshold: float | None, n_clusters: int | None, stats: bool) -> None:
+    """Cluster stored embeddings hierarchically."""
+    workspace_path = Path(workspace).resolve()
+    docs_path = workspace_path / "index" / "docs.jsonl"
+    if not docs_path.exists():
+        click.echo(
+            f"Error: Document store '{docs_path}' not found. Run 'textura ingest' first.",
+            err=True,
+        )
+        return
+
+    vector_store = FAISSVectorStore(workspace_path=str(workspace_path))
+    if vector_store.index is None or vector_store.index.ntotal == 0:
+        click.echo("No embeddings found in vector store.", err=True)
+        return
+
+    embeddings = [vector_store.index.reconstruct(i) for i in range(vector_store.index.ntotal)]
+
+    agent = ClusterAgent(embeddings)
+    clusters = agent.hierarchical(
+        linkage_method=linkage,
+        distance_threshold=distance_threshold,
+        n_clusters=n_clusters,
+    )
+
+    cluster_map = {i: int(label) for i, label in enumerate(agent.labels)}
+    cluster_map_path = workspace_path / "index" / "cluster_map.json"
+    with open(cluster_map_path, "w") as f:
+        json.dump(cluster_map, f)
+    click.echo(f"Cluster map saved to {cluster_map_path}")
+
+    if stats:
+        sizes = [len(v) for v in clusters.values()]
+        click.echo(f"Clusters: {len(clusters)}")
+        if sizes:
+            click.echo(f"Avg size: {sum(sizes)/len(sizes):.2f}")
+            click.echo(f"Max size: {max(sizes)}")
+            click.echo(f"Min size: {min(sizes)}")
 
 
 @textura_cli.command()
