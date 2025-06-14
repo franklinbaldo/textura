@@ -108,6 +108,12 @@ class LocalEmbedder(EmbedderBase):
             return []
 
 
+class Embedder(LocalEmbedder):
+    """Backward compatibility wrapper for the default embedder."""
+
+    pass
+
+
 class RetryTransport(AsyncBaseTransport):
     """
     A custom httpx transport that adds retry logic for specific HTTP status codes
