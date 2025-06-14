@@ -231,6 +231,29 @@ class CorpusProcessingAgent:
         print(f"Total estimated tokens after filtering: {current_filtered_token_count}")
         return filtered_chunks
 
+    def build_hierarchical_clusters(
+        self,
+        linkage: str = "average",
+        distance_threshold: float | None = None,
+        n_clusters: int | None = None,
+    ) -> dict[int, list[int]]:
+        """Cluster corpus embeddings hierarchically."""
+
+        if not self.corpus_embeddings:
+            raise ValueError("Corpus embeddings are not available for clustering")
+
+        from .cluster_agent import ClusterAgent
+
+        agent = ClusterAgent(list(self.corpus_embeddings))
+        clusters = agent.hierarchical(
+            linkage_method=linkage,
+            distance_threshold=distance_threshold,
+            n_clusters=n_clusters,
+        )
+        self.cluster_labels = agent.labels
+        self.cluster_linkage = agent.linkage_matrix
+        return clusters
+
 
 if __name__ == "__main__":
     # Example Usage (very basic for now)
