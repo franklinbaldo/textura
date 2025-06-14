@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 from llama_index.core import Document, ServiceContext, VectorStoreIndex
-from llama_index.llms.google_genai import GoogleGenAI
 from llama_index.vector_stores.milvus import MilvusVectorStore
+
+try:
+    from llama_index.llms.google_genai import GoogleGenAI
+except Exception:  # pragma: no cover - optional dependency
+    GoogleGenAI = None
 
 
 class RetrievalAgent:
@@ -18,9 +22,10 @@ class RetrievalAgent:
             collection_name=collection_name, host=host, port=port
         )
         self.index = VectorStoreIndex.from_vector_store(self.vector_store)
-        self.llm = GoogleGenAI(
-            model="models/gemini-pro"
-        )  # Updated class and model name if necessary
+        if GoogleGenAI is not None:
+            self.llm = GoogleGenAI(model="models/gemini-pro")
+        else:  # pragma: no cover - fallback if LlamaIndex lacks this class
+            self.llm = None
         self.query_engine = self.index.as_chat_engine(
             service_context=ServiceContext.from_defaults(llm=self.llm)
         )
